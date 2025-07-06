@@ -211,19 +211,58 @@ lemma occursAt_closed (p : Pattern A d) (v : Zd d) :
   rw [this]
   exact cylinder_is_closed d U y
 
--- /-- The set of configurations avoiding a **finite** set of forbidden patterns is closed. -/
--- lemma forbids_closed (F : Finset (Pattern A d)) :
---     IsClosed (forbids (F : Set _)) := by
---   -- Avoidance = intersection over p ∈ F, v ∈ Zd d of complement of occurrence sets
---   have : forbids (F : Set _) =
---     ⋂ p ∈ F, ⋂ v : Zd d, {x | ¬ p.occursIn x v} := by
---     ext x
---     simp only [forbids, mem_setOf_eq, mem_iInter, forall_and]
---   rw [this]
---   apply isClosed_iInter; intro p
---   apply isClosed_iInter_finset; intro _ -- Fintype Zd d not available, avoid
---   apply isClosed_compl_iff.mpr
---   exact occursAt_closed p _
+lemma occursAt_open (p : Pattern A d) (v : Zd d) :
+    IsOpen { x | p.occursIn x v } := by
+  -- Define the configuration from the pattern
+  let y := patternToConfig p v
+  -- Define the set of positions where the pattern is expected to match
+  let U := p.support.image (· + v)
+  -- Define the cylinder corresponding to those constraints
+  let C := cylinder U y
+  -- Show equality of the two sets
+  have : {x | p.occursIn x v} = C := by
+    ext x
+    simp only [mem_setOf_eq]
+    constructor
+    · intro H u hu
+      obtain ⟨w, hw, rfl⟩ := Finset.mem_image.mp hu
+      -- y = shift v (patternToOriginConfig p), so y (w + v) = patternToOriginConfig p w
+      dsimp [y, patternToConfig, shift, patternToOriginConfig]
+      rw [add_neg_cancel_right]
+      rw [dif_pos hw]
+      exact H w hw
+    · intro H u hu
+      -- Have: x (u + v) = y (u + v)
+      -- But y (u + v) = patternToOriginConfig p u
+      have := H (u + v) (Finset.mem_image_of_mem _ hu)
+      dsimp [y, patternToConfig, shift, patternToOriginConfig] at this
+      rw [add_neg_cancel_right] at this
+      rw [dif_pos hu] at this
+      exact this
+  rw [this]
+  exact cylinder_is_open U y
+
+/-- The set of configurations avoiding a set of forbidden patterns is closed. -/
+lemma forbids_closed (F : Set (Pattern A d)) :
+  IsClosed (forbids F) := by
+  rw [forbids]
+  have : {x | ∀ p ∈ F, ∀ v : Zd d, ¬ p.occursIn x v}
+       = ⋂ (p : Pattern A d) (h : p ∈ F), ⋂ (v : Zd d), {x | ¬ p.occursIn x v} := by
+    ext x
+    simp only [Set.mem_setOf_eq, Set.mem_iInter]
+  rw [this]
+  apply isClosed_iInter
+  intro p
+  apply isClosed_iInter
+  intro _
+  apply isClosed_iInter
+  intro v
+  have : {x | ¬p.occursIn x v} = {x | p.occursIn x v}ᶜ := by
+    ext x
+    simp only [Set.mem_compl_iff, Set.mem_setOf_eq]
+  rw [this]
+  rw [isClosed_compl_iff]
+  exact occursAt_open p v
 
 end FullShiftZd
 
