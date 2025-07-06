@@ -264,6 +264,14 @@ lemma forbids_closed (F : Set (Pattern A d)) :
   rw [isClosed_compl_iff]
   exact occursAt_open p v
 
+def X_F (F : Set (Pattern A d)) : Subshift A d :=
+{ carrier := forbids F,
+  is_closed := forbids_closed F,
+  shift_invariant := forbids_shift_invariant F }
+
+def SFT (F : Finset (Pattern A d)) : Subshift A d :=
+  X_F (F : Set (Pattern A d))
+
 end FullShiftZd
 
 end SymbolicDynamics
