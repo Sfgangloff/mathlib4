@@ -7,6 +7,8 @@ import Mathlib.Topology.UniformSpace.Pi
 import Mathlib.Topology.UniformSpace.Basic
 import Mathlib.Topology.Sets.Opens
 import Mathlib.Topology.Instances.Discrete
+import Mathlib.Algebra.Group.Basic
+
 
 open Set Topology
 
@@ -53,7 +55,7 @@ def shift (v : Zd d) (x : FullShiftZd A d) : FullShiftZd A d :=
 
 /-- Shift by 0 leaves a configuration unchanged. -/
 lemma shift_zero (x : FullShiftZd A d) : shift 0 x = x := by
-  funext n; simp [shift, Pi.zero_apply, add_zero]
+  funext n; simp [shift, add_zero]
 
 /-- Shift composition: shifting by `v` then by `w` is shifting by `v + w`. -/
 lemma shift_add (v w : Zd d) (x : FullShiftZd A d) :
@@ -95,7 +97,7 @@ lemma cylinder_is_closed (d : ℕ) (U : Finset (Zd d)) (x : Zd d → A) :
       cylinder {i} (Function.update x i a) := by
     · ext y
       simp only [mem_compl_iff, mem_iUnion, mem_cylinder, Finset.mem_univ, Finset.mem_sdiff,
-        not_and, not_forall, exists_prop]
+not_forall, exists_prop]
       constructor
       · intro hy
         push_neg at hy
@@ -105,10 +107,10 @@ lemma cylinder_is_closed (d : ℕ) (U : Finset (Zd d)) (x : Zd d → A) :
         · simp [hiy]
         · simp [Function.update_apply]
       · rintro ⟨i, hiU, a, ha, hy⟩
-        simp only [Finset.mem_sdiff, Finset.mem_univ, true_and] at ha
+        simp only [true_and] at ha
         use i, hiU
         rw [hy]
-        simp only [Function.update_apply, if_pos rfl]
+        simp only [Function.update_apply]
         have hne : a ≠ x i := by
           intro h
           apply ha
@@ -167,47 +169,47 @@ lemma forbids_shift_invariant (F : Set (Pattern A d)) :
   intro H
   apply hx
   intro u hu
-  simp [shift, ←add_assoc]
+  simp [←add_assoc]
   exact H u hu
 
-noncomputable def patternToConfig (p : Pattern A d) (v : Zd d) : Zd d → A :=
-  fun i ↦
-    if h : ∃ u ∈ p.support, u + v = i then
-      let u := Classical.choose h
-      let hu := Classical.choose_spec h
-      p.data ⟨u, hu.left⟩
-    else default
+def patternToOriginConfig (p : Pattern A d) : FullShiftZd A d :=
+  fun i ↦ if h : i ∈ p.support then p.data ⟨i, h⟩ else default
 
--- /-- The occurrence set of a fixed pattern at a fixed position is closed. -/
--- lemma occursAt_closed (p : Pattern A d) (v : Zd d) :
---     IsClosed { x | p.occursIn x v } := by
---   -- This set is an intersection of cylinder sets
---   let U := p.support.image (· + v)
---   let y := patternToConfig p v
---   let C := cylinder U y
---   have : {x | p.occursIn x v} = C := by
---     ext x
---     simp only [mem_setOf_eq, mem_cylinder]
---     constructor
---     · intro H u hu
---       obtain ⟨w, hw, rfl⟩ := Finset.mem_image.mp hu
---       dsimp [y, patternToConfig]
---       split_ifs with h'
---       · have h'_copy := h'
---         obtain ⟨u', hu', huv⟩ := h'
---         rw [←huv] -- rewrite LHS of goal: x (w + v) = ...
---         exact H u' hu'
---       · exfalso; apply h'; exact ⟨w, hw, rfl⟩
---     · intro H u hu
---       have := H (u + v) (Finset.mem_image_of_mem _ hu)
---       simp only [y] at this
---       split_ifs at this with h'
---       · obtain ⟨w, hw, huv⟩ := h'
---         rw [←huv] at this
---         exact this
---       · exfalso; apply h'; exact ⟨u, hu, rfl⟩
---   rw [this]
---   exact cylinder_is_closed d U y
+def patternToConfig (p : Pattern A d) (v : Zd d) : FullShiftZd A d :=
+  shift (-v) (patternToOriginConfig p)
+
+
+/-- The occurrence set of a fixed pattern at a fixed position is closed. -/
+lemma occursAt_closed (p : Pattern A d) (v : Zd d) :
+    IsClosed { x | p.occursIn x v } := by
+  -- Define the configuration from the pattern
+  let y := patternToConfig p v
+  -- Define the set of positions where the pattern is expected to match
+  let U := p.support.image (· + v)
+  -- Define the cylinder corresponding to those constraints
+  let C := cylinder U y
+  -- Show equality of the two sets
+  have : {x | p.occursIn x v} = C := by
+    ext x
+    simp only [mem_setOf_eq]
+    constructor
+    · intro H u hu
+      obtain ⟨w, hw, rfl⟩ := Finset.mem_image.mp hu
+      -- y = shift v (patternToOriginConfig p), so y (w + v) = patternToOriginConfig p w
+      dsimp [y, patternToConfig, shift, patternToOriginConfig]
+      rw [add_neg_cancel_right]
+      rw [dif_pos hw]
+      exact H w hw
+    · intro H u hu
+      -- Have: x (u + v) = y (u + v)
+      -- But y (u + v) = patternToOriginConfig p u
+      have := H (u + v) (Finset.mem_image_of_mem _ hu)
+      dsimp [y, patternToConfig, shift, patternToOriginConfig] at this
+      rw [add_neg_cancel_right] at this
+      rw [dif_pos hu] at this
+      exact this
+  rw [this]
+  exact cylinder_is_closed d U y
 
 -- /-- The set of configurations avoiding a **finite** set of forbidden patterns is closed. -/
 -- lemma forbids_closed (F : Finset (Pattern A d)) :
