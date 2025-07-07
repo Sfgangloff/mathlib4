@@ -8,6 +8,7 @@ import Mathlib.Topology.UniformSpace.Basic
 import Mathlib.Topology.Sets.Opens
 import Mathlib.Topology.Instances.Discrete
 import Mathlib.Algebra.Group.Basic
+import Mathlib.Data.Int.Interval
 
 
 open Set Topology
@@ -271,6 +272,14 @@ def X_F (F : Set (Pattern A d)) : Subshift A d :=
 
 def SFT (F : Finset (Pattern A d)) : Subshift A d :=
   X_F (F : Set (Pattern A d))
+
+  def box (n : ℕ) : Finset (Zd d) :=
+  Fintype.piFinset (λ _ ↦ Finset.Icc (-↑n : ℤ) ↑n)
+
+-- def language_box (X : Set (FullShiftZd A d)) (n : ℕ) : Set (Pattern A d) :=
+--   { p | ∃ (h : p.support = box n), ∃ x ∈ X, ∃ v : Zd d,
+--       ∀ i ∈ box n, x (i + v) = p.data ⟨i, Eq.symm h ▸ ‹i ∈ box n›⟩ }
+
 
 end FullShiftZd
 
