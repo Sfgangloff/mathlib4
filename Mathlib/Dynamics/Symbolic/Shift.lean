@@ -283,6 +283,47 @@ def box (n : ℕ) : Finset (Zd d) :=
 def language_box (X : Set (Zd d → A)) (n : ℕ) : Set (Pattern A d) :=
   { p | ∃ x ∈ X, patternFromConfig x (box n) = p }
 
+-- Define the subtype of patterns with fixed support U
+def FixedSupport (A : Type*) (d : ℕ) (U : Finset (Zd d)) :=
+  { p : Pattern A d | p.support = U }
+
+-- TODO: read
+def coeSubtypeEquiv {α : Type*} {s t : Finset α} (h : s = t) : (s → A) ≃ (t → A) :=
+  { toFun := fun f => fun i => f ⟨i.1, h.symm ▸ i.2⟩,
+    invFun := fun g => fun i => g ⟨i.1, h ▸ i.2⟩,
+    left_inv := by
+      intro f
+      ext i
+      simp only,
+    right_inv := by
+      intro g
+      ext i
+      simp only}
+
+-- -- Show that patterns with support U are in bijection with functions U → A
+-- -- TODO: read
+-- def equivFun {U : Finset (Zd d)} : FixedSupport A d U ≃ (U → A) where
+--   toFun := fun p => (coeSubtypeEquiv p.property).toFun p.val.data
+--   invFun := fun f => ⟨{ support := U, data := f }, rfl⟩
+--   left_inv := by
+--     intro ⟨p, hp⟩
+--     dsimp
+--     apply Subtype.eq
+--     simp only [hp]
+--   right_inv := by
+--     intro f
+--     dsimp
+--     simp only [Finset.coeSortEquiv_apply, Equiv.toFun_as_coe]
+
+-- -- Now the main lemma: the type of patterns with support U is finite
+-- -- TODO: read
+-- instance fintypeFixedSupport (U : Finset (Zd d)) : Fintype (FixedSupport A d U) :=
+--   Fintype.ofEquiv (U → A) (equivFun)
+
+-- -- TODO: read
+-- noncomputable def languageCard (X : Set (Zd d → A)) (n : ℕ) : ℕ :=
+--   Finset.card (language_box X n).toFinset
+
 end FullShiftZd
 
 end SymbolicDynamics
