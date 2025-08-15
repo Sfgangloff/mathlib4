@@ -20,34 +20,101 @@ open Filter
 namespace SymbolicDynamics
 
 /-!
-  ## Setup
+  # Setup
   We fix:
-  - a finite alphabet `A` with a discrete topology;
-  - a dimension `d : ℕ` representing the ℤ^d lattice.
+  - A finite alphabet `A` with a discrete topology and a default element;
+  - A dimension `d : ℕ`.
+  - The lattice Z^d, with an algorithm for deciding equality, an addition and group structure.
 -/
 
+-- The keyword 'variable' defines names and stores them the context of this scope.
+-- The following variable defines a type A living in some universe Type u.
+-- Type* is a shortcut for 'Type _ with an implicit universe level'
+-- It makes every lemma universe-polymorphic without you having to pick u.
+-- The Curly braces {…} make A an implicit argument: future lemmas will quantify
+-- over A but users won’t have to write it explicitly; Lean will infer it.
+-- [Fintype A] is a typeclass parameter: Lean expects an instance of Fintype A
+-- to be available in the typeclass system. Mathematically, this means: “A is finite.”
+-- Consequences are as follows: you get canonical enumerations (e.g. Finset.univ : Finset A),
+-- cardinality Fintype.card A, sums/products over A, etc.
+-- Technically: Lean inserts a hidden argument inst? : Fintype A and uses it automatically.
+
+-- The typeclass parameter [DecidableEq A] provides the equality statement a=b for elements
+-- a,b in A with an algorithm deciding it.
+-- The typeclass parameter [Inhabited A] provides a default element of A.
+-- In particular, A is assumed not empty.
+-- The typeclass parameter [TopologicalSpace A] provides A with a topology (and thus
+-- open sets, continuity, limits, etc).
+-- The typeclass parameter [DiscreteTopology A] assume that that the given topology on A
+-- is discrete, providing a formal proof of this.
+
 variable {A : Type*} [Fintype A] [DecidableEq A] [Inhabited A]
-variable [TopologicalSpace A] [DiscreteTopology A]
+[TopologicalSpace A] [DiscreteTopology A]
+
+-- {d : ℕ} Introduces a natural number parameter d, implicitly.
+-- As with {A …}, the curly braces mean users don’t have to write d explicitly when
+-- it can be inferred from context (e.g. the dimension of ℤ^d, arrays of length d, etc.).
+
 variable {d : ℕ}
 
 /-- The discrete ℤ^d lattice is modeled as functions from `Fin d` to `ℤ`. -/
+-- Defines Zd as a type dependent on a parameter d of type N. This type is
+-- the one of functions from Fin d to Z. Fin d is the finite set {0,1,…,d−1}
+-- The keyword "def" means new definition.
 def Zd (d : ℕ) := Fin d → ℤ
+
+-- The following declares that Zd d has decidable equality, and tells Lean how to get the
+-- algorithm, namely by infering it (using inferInstanceAs) from the known algorithm
+-- on Fin d → ℤ.
+
+-- @[instance]: this registers the definition as a typeclass instance.
+-- This typeclass is DecidableEq (Zd d).
+-- Without @[instance], Lean would not automatically use this function in typeclass search.
+-- With it, any time Lean sees [DecidableEq (Zd d)] as a requirement, it will try this definition.
+
+-- Mathematically Zd.decidableEq is a function which associates an instance of DecidableEq (Zd d)
+-- for each integer d, meaning an algorithm for deciding equality.
 
 @[instance]
 def Zd.decidableEq (d : ℕ) : DecidableEq (Zd d) :=
   inferInstanceAs (DecidableEq (Fin d → ℤ))
 
 /-- Pointwise addition on ℤ^d. -/
+-- The keyword instance declares a typeclass instance.
+-- Defines an instance of Add for Zd d, which takes u v defined as functions and
+-- the sum is defined as i ↦ u i + v i (i ↦ u(i) + v(i)).
 instance : Add (Zd d) where
   add := fun u v i ↦ u i + v i
 
+-- AddCommGroup is the standard typeclass of additive commutative groups.
+-- Pi.addCommGroup helps define group structure on functions with value in an
+-- additive commutative group (product of groups).
 instance : AddCommGroup (Zd d) := Pi.addCommGroup
 
+
+/-!
+  # Symbolic dynamics definitions
+-/
+
+/-!
+  ## Definitions
+-/
+
+/-! ### Full shift -/
+
 /-- The full shift space over ℤ^d with alphabet `A`. -/
+-- The full shift is defined as the set of functions from Z^d to A.
+-- @[reducible] makes this definition reducible for the typechecker.
+-- This means When Lean sees FullShiftZd A d in a goal,
+-- it will freely replace it with Zd d → A.
 @[reducible]
 def FullShiftZd (A : Type*) (d : ℕ) := Zd d → A
 
+-- Defines the topology on the full shifts as the product topology of the
+-- (discrete) topology on A.
 instance : TopologicalSpace (FullShiftZd A d) := Pi.topologicalSpace
+-- Defines the default element of the full shift as the function which to every position
+-- z associates the default element of A.
 instance : Inhabited (FullShiftZd A d) := ⟨fun _ ↦ default⟩
 
 namespace FullShiftZd
@@ -56,61 +123,174 @@ namespace FullShiftZd
 
 /-- The shift action of ℤ^d on the full shift. -/
 def shift (v : Zd d) (x : FullShiftZd A d) : FullShiftZd A d :=
-  fun n ↦ x (n + v)
+  fun u ↦ x (u + v)
 
-/-- Shift by 0 leaves a configuration unchanged. -/
-lemma shift_zero (x : FullShiftZd A d) : shift 0 x = x := by
-  funext n; simp [shift, add_zero]
+section
+variable {A : Type*} {d : ℕ}
 
-/-- Shift composition: shifting by `v` then by `w` is shifting by `v + w`. -/
+-- The map shift is a group action. This is implied by the two lemmas.
+
+-- This says with v fixed to 0, this map is identity.
+-- The attribue `@[simp]` tells the simplifier tactic simp that this lemma should
+-- be used as a rewriting rule.
+@[simp] lemma shift_zero (x : FullShiftZd A d) :
+    shift (0 : Zd d) x = x := by
+  -- Considers a particular u, and the goal becomes shift 0 x u = x u.
+  ext u
+  -- Uses the definition of the shift to get `shift 0 x u = x (u + 0)`. Under the hood,
+  -- `add_zero` is used, transforming `x (u+0)` into `x u`.
+  simp [shift]
+
+-- Additivity.
 lemma shift_add (v w : Zd d) (x : FullShiftZd A d) :
     shift (v + w) x = shift v (shift w x) := by
-  funext n; simp [shift, add_assoc]
+  -- Considers a particular u, and the goal becomes shift 0 x u = x u.
+  ext u
+  -- LHS: x (u + (v + w))
+  -- RHS: from the definition of shift we have
+  -- (shift v (shift w x)) u = (shift w x) (u + v) = x ((u + v) + w)
+  -- Wityh add_assoc (associativity of addition), we have LHS = RHS.
+  simp [shift, add_assoc]
+end
 
-/-- The cylinder set fixing `x` on a finite set `U` of coordinates. -/
+section
+variable {A : Type*} [TopologicalSpace A]
+variable {d : ℕ}
+
+/-- The shift map is continuous. -/
+lemma shift_continuous (v : Zd d) :
+  Continuous (shift v : FullShiftZd A d → FullShiftZd A d) :=
+by
+-- tactic which, looking at the structure of the function
+-- (compositions, products, projections, lambda, etc) and knwon lemmas,
+-- provides a continuity proof.
+continuity
+
+end
+
+/-! ### Cylinders -/
+
+/-- Defines the cylinder, provided a configuration `x` and a finite set subset `U` of Z^d,
+as the set of configurations which agree with `x`on `U`. -/
 @[reducible]
 def cylinder (U : Finset (Zd d)) (x : Zd d → A) : Set (FullShiftZd A d) :=
   { y | ∀ i ∈ U, y i = x i }
 
-/-- Membership condition for cylinder sets. -/
-lemma mem_cylinder {U : Finset (Zd d)} {x y : Zd d → A} :
-    y ∈ cylinder U x ↔ ∀ i ∈ U, y i = x i := by
-  unfold cylinder; rfl
+section
+variable {A : Type*} {d : ℕ}
 
+-- Rewrites belonging to a cylinder as pointwise equalities.
+@[simp] lemma mem_cylinder {U : Finset (Zd d)} {x y : FullShiftZd A d} :
+  y ∈ cylinder U x ↔ ∀ i ∈ U, y i = x i := by
+  -- The keyword unfold cylinder replaces cylinder U x by its defining RHS: {y∣∀i∈U,yi=xi}.
+  -- The goal thus becomes y ∈ { y | ∀ i ∈ U, y i = x i } ↔ ∀ i ∈ U, y i = x i.
+  unfold cylinder;
+  -- Two expressions are definitionally equal if Lean can reduce one to the
+  -- other by unfolding definitions - this is what rfl does. Here it is the case.
+  -- Hence rfl (reflexivity of definitional equality) closes the goal:
+  -- both sides are definitionally the same term.
+  rfl
+end
+
+section
+variable {A : Type*} [TopologicalSpace A] [DiscreteTopology A]
+variable {d : ℕ}
+
+-- This proves that a cylinder is an open set.
 lemma cylinder_is_open (U : Finset (Zd d)) (x : Zd d → A) :
   IsOpen (cylinder U x) := by
+  -- Define S as intersection of 'elementary' cylinders provided by x and elements of U.
   let S : Set (FullShiftZd A d) := ⋂ i ∈ U, { y | y i = x i }
+  -- Let's prove that the cylinder is equal to S.
   have : cylinder U x = S := by
+    -- Transforms the goal into an equivalence of y in cylinder and y in S.
     ext y
-    rw [cylinder, mem_setOf_eq, mem_iInter₂]
+    -- Using cylinder, the goal becomes: y in { y | ∀ i ∈ U, y i = x i } <->  y in S.
+    -- mem_setOf_eq : (x ∈ {y | p y}) = p x
+    -- Using this, the goal becomes ∀ i ∈ U, y i = x i <-> y in S.
+    rw [cylinder, mem_setOf_eq]
+    -- mem_iInter₂ : x ∈ ⋂ i ∈ s, T i ↔ ∀ i ∈ s, x ∈ T i
+    -- Using this, we rewrite y in S and the goal becomes:
+    -- (∀ i ∈ U, y i = x i) ↔ ∀ i ∈ U, y ∈ {y | y i = x i}.
+    rw [mem_iInter₂]
+    -- Rewrites y ∈ {y | y i = x i} as y i = x i. The goal becomes trivial.
     simp only [mem_setOf_eq]
+  -- "this" refers to the fact we just proved. The goal is then S is open.
   rw [this]
+  -- isOpen_biInter_finset: the intersection of open sets is an open set.
+  -- The keyword "apply" means “Use this theorem/lemma/definition as the next step,
+  -- matching its conclusion with the current goal,
+  -- and then generate new subgoals for its hypotheses.”. In this case,
+  -- The goal becomes ∀ i ∈ U, IsOpen {y | y i = x i}.
   apply isOpen_biInter_finset
+  -- Introduces a particular i in U. The goal is thus to prove IsOpen {y | y i = x i}.
   intro i _
-  -- Now prove {y | y i = x i} is open by writing it as a preimage
+  -- The {y | y i = x i} is the preimage of the function y -> y i.
   have : { y : FullShiftZd A d | y i = x i } = (fun y ↦ y i) ⁻¹' {x i} := rfl
+  -- Rewrite using the statement above.
   rw [this]
+  -- Uses the fact that the preimage of an open set is an open set. We
+  -- need that y -> y i is continuous, and that the set {x i} is open.
+  -- The goal is thus composed of these two subgoals.
+  -- This is given directly by continuous_apply and isOpen_discrete.
   apply Continuous.isOpen_preimage
   · exact continuous_apply i
   · exact isOpen_discrete ({x i} : Set A)
+end
 
+section
+variable {A : Type*} [TopologicalSpace A] [DiscreteTopology A]
+variable [Fintype A] [DecidableEq A]
+variable {d : ℕ}
 /-- Cylinder sets are also closed. -/
 lemma cylinder_is_closed (d : ℕ) (U : Finset (Zd d)) (x : Zd d → A) :
     IsClosed (cylinder U x) := by
-  -- The complement of the cylinder is a union over i ∈ U and a ≠ x i of cylinders fixing i to a
+  -- The complement of the cylinder is a union over i ∈ U and a ≠ x i of cylinders fixing
+  -- the value on position i to a.
+  -- The keyword Function.update x i a corresponds to updating the function x at
+  -- input i with value a.
+  -- Finset.univ: this is the finite set of all elements of type A (infered from type of a)
+  -- The symbol \ corresponds to set difference.
+  -- This statement allows us to use the fact that cylinders are open.
   have h : (cylinder U x)ᶜ = ⋃ (i ∈ U) (a ∈ (Finset.univ \ {x i} : Finset A)),
       cylinder {i} (Function.update x i a) := by
     · ext y
-      simp only [mem_compl_iff, mem_iUnion, mem_cylinder, Finset.mem_univ, Finset.mem_sdiff,
-not_forall, exists_prop]
+      -- Writes belonging to complement as not belonging to.$
+      -- The keyword "only" means simplifying only with these lemmas and nothing else.
+      simp only [mem_compl_iff]
+      -- unpack membership to union.
+      simp only [mem_iUnion]
+      -- unpack membership to cylinder using ad hoc lemma above.
+      simp only [mem_cylinder]
+      -- Finset.mem_univ : a ∈ Finset.univ ↔ True
+      -- Finset.mem_sdiff : a ∈ (s \ t) ↔ a ∈ s ∧ a ∉ t
+      simp only [Finset.mem_univ, Finset.mem_sdiff]
+      -- not for all is exists one that not.
+      simp only [not_forall]
+      -- exists_prop : (∃ x, p x ∧ q) ↔ (∃ x, p x) ∧ q
+      simp only [exists_prop]
+      -- Decomposes the equivalence into two implications.
       constructor
+      -- First case, intro assumes the hypothesis.
       · intro hy
+        -- ean tactic that pushes negations (¬) inward through logical connectives and
+        -- quantifiers inside the expression or hypothesis hy.
         push_neg at hy
+        -- Lean’s destructuring syntax for hypotheses that are existential statements or tuples.
         obtain ⟨i, hiU, hiy⟩ := hy
+        -- This means “The witnesses for the first three ∃ in my goal are i, hiU,
+        -- and y i respectively. Now Lean, please update the goal to only require
+        -- the proof of the remaining property.”
+        -- Here uses i, hiU for exists i in U and replaces i_1 with y i. Note that in the new goal
+        -- i_2 is renamed i_1.
         use i, hiU, y i
+        -- Separates the conjunction
         constructor
+        -- Proves True ∧ y i ∉ {x i}. Comes directly from hiy: y i ≠ x i.
         · simp [hiy]
+        -- Enough to apply the update.
         · simp [Function.update_apply]
+      -- TODO: START AGAIN FROM THERE.
       · rintro ⟨i, hiU, a, ha, hy⟩
         simp only [true_and] at ha
         use i, hiU
@@ -123,6 +303,7 @@ not_forall, exists_prop]
           exact Finset.mem_singleton_self _
         exact hne
         exact Finset.mem_singleton_self i
+  -- Proof that the complement is open.
   have : IsOpen ((cylinder U x)ᶜ) := by
     rw [h]
     apply isOpen_iUnion; intro i
@@ -130,12 +311,9 @@ not_forall, exists_prop]
     apply isOpen_iUnion; intro a
     apply isOpen_iUnion; intro ha
     exact cylinder_is_open {i} (Function.update x i a)
+  -- Concludes
   exact isOpen_compl_iff.mp this
-
-/-- The shift map is continuous. -/
-lemma shift_continuous (v : Zd d) :
-  Continuous (shift v : FullShiftZd A d → FullShiftZd A d) :=
-by continuity
+end
 
 /-! ### Subshifts and patterns -/
 
@@ -291,7 +469,6 @@ def language_box (X : Set (Zd d → A)) (n : ℕ) : Set (Pattern A d) :=
 def FixedSupport (A : Type*) (d : ℕ) (U : Finset (Zd d)) :=
   { p : Pattern A d // p.support = U }
 
--- TODO: read
 def coeSubtypeEquiv {α : Type*} {s t : Finset α} (h : s = t) : (s → A) ≃ (t → A) :=
   { toFun := fun f => fun i => f ⟨i.1, h.symm ▸ i.2⟩,
     invFun := fun g => fun i => g ⟨i.1, h ▸ i.2⟩,
@@ -332,7 +509,6 @@ by
   -- (U → A) is finite and equivFun.symm : (U → A) ≃ FixedSupport A d U
   exact Fintype.ofEquiv (U → A) (equivFun (A:=A) (d:=d) (U:=U)).symm
 
--- TODO: read
 noncomputable def languageCard (X : Set (Zd d → A)) (n : ℕ) : ℕ :=
 by
   classical
@@ -385,15 +561,12 @@ noncomputable def entropy (Y : Subshift A d) : ℝ :=
 
 section UpperComputable
 
-variable {A : Type*} [Fintype A] [DecidableEq A] [Inhabited A]
-variable [TopologicalSpace A] [DiscreteTopology A]
-variable {d : ℕ}
 
 /-- A pattern `f : (box n → A)` **locally avoids** the finite forbidden list `F`
 on the box `box n`, i.e. no translate of any `p ∈ F` that fits inside the box
 occurs exactly. -/
 def locallyAdmissible (F : Finset (Pattern A d)) (n : ℕ)
-    (f : (box (d:=d) n → A)) : Prop :=
+    (f : (box (d := d) n → A)) : Prop :=
   ∀ p ∈ F, ∀ v : Zd d, ∀ hv : ∀ u ∈ p.support, u + v ∈ box (d:=d) n,
     ¬ (∀ u (hu : u ∈ p.support),
          f ⟨u + v, hv u hu⟩ = p.data ⟨u, hu⟩)
@@ -401,33 +574,26 @@ def locallyAdmissible (F : Finset (Pattern A d)) (n : ℕ)
 lemma locallyAdmissible_iff_not_occurs
   (F : Finset (Pattern A d)) (n : ℕ) (f : (box (d:=d) n → A)) :
   locallyAdmissible (A:=A) (d:=d) F n f ↔
-  ∀ p ∈ F, ∀ v : Zd d, (∀ u ∈ p.support, u + v ∈ box (d:=d) n) →
-    ∃ i : {u // u ∈ p.support},
-      f ⟨i.val + v, by simpa using (by apply ‹∀ u ∈ p.support, u + v ∈ _›; exact i.val; exact i.property)⟩
-        ≠ p.data i := by
+  ∀ p ∈ F, ∀ v : Zd d,
+    ∀ hv : ∀ u ∈ p.support, u + v ∈ box (d:=d) n,
+      ∃ i : { u // u ∈ p.support },
+        f ⟨i.val + v, hv i.val i.property⟩ ≠ p.data i := by
   classical
-  -- For readability, name the "fits in the box" hypothesis:
-  -- hv : ∀ u ∈ p.support, u + v ∈ box n
   unfold locallyAdmissible
   constructor
-  · -- (→) From local non-occurrence (¬∀ ...) to existence of a mismatch
+  · -- → : from "no local occurrence" to "there is a mismatch"
     intro h p hp v hv
-    have h₀ := h p hp v hv
-    -- Suppose no mismatch exists; then we get ∀u, equality, contradicting h₀
+    have hno := h p hp v hv
     by_contra H
     push_neg at H
-    -- H : ∀ i : {u // u ∈ p.support},
-    --       f ⟨i.val + v, hv i.val i.property⟩ = p.data i
-    exact h₀ (by
+    -- H : ∀ i, f ⟨i.val+v, hv …⟩ = p.data i
+    exact hno (by
       intro u hu
-      -- instantiate H with i = ⟨u, hu⟩
       simpa using H ⟨u, hu⟩)
-  · -- (←) From existence of a mismatch to local non-occurrence (¬∀ ...)
+  · -- ← : from "there is a mismatch" to "no local occurrence"
     intro h p hp v hv H
-    -- H : ∀ u (hu : u ∈ p.support),
-    --       f ⟨u + v, hv u hu⟩ = p.data ⟨u, hu⟩
+    -- H : ∀ u (hu ∈ p.support), f ⟨u+v, hv u hu⟩ = p.data ⟨u, hu⟩
     rcases h p hp v hv with ⟨i, hi⟩
-    -- But H says equality for that very i, contradiction
     exact hi (by simpa using H i.val i.property)
 
 
@@ -437,88 +603,443 @@ noncomputable def patternCountLoc (F : Finset (Pattern A d)) (n : ℕ) : ℕ :=
 by
   classical
   let U : Finset (Zd d) := box (d:=d) n
-  -- enumerate all colorings U → A
-  let all : Finset (U → A) := Fintype.elems (U → A)
-  exact (all.filter (fun f => locallyAdmissible (A:=A) (d:=d) F n f)).card
+  -- Parentheses are required before `.filter`
+  -- Then `simp [U]` rewrites `(U → A)` to `(box n → A)` in the predicate’s type.
+  simpa [U] using
+    (((Finset.univ : Finset (U → A)).filter
+        (fun f => locallyAdmissible (A:=A) (d:=d) F n f))).card
 
 /-- The per-site local upper bound `u_F(n) = (1/|B_n|) log (Z_loc(n) + 1)`. -/
 noncomputable def u_loc (F : Finset (Pattern A d)) (n : ℕ) : ℝ :=
   (Real.log (patternCountLoc (A:=A) (d:=d) F n + 1)) / ((box (d:=d) n).card : ℝ)
 
-/-- A computable decreasing envelope: `q_F(k) = min_{1≤n≤k} u_loc(F,n)`. -/
+/-- A computable decreasing envelope: `q_F(k) = min_{1 ≤ n ≤ k} u_loc(F,n)`. -/
 noncomputable def q_upper (F : Finset (Pattern A d)) : ℕ → ℝ
-| 0       => u_loc (A:=A) (d:=d) F 1
-| (k + 1) => Real.min (q_upper k) (u_loc (A:=A) (d:=d) F (k+1))
+| 0       => u_loc (A := A) (d := d) F 1
+| (k + 1) => min (q_upper F k) (u_loc (A := A) (d := d) F (k + 1))
+
+lemma q_upper_succ_le (F : Finset (Pattern A d)) (k : ℕ) :
+  q_upper (A := A) (d := d) F (k+1) ≤ q_upper (A := A) (d := d) F k := by
+  simpa [q_upper] using
+    (min_le_left (q_upper (A := A) (d := d) F k)
+                 (u_loc (A := A) (d := d) F (k+1)))
 
 lemma q_upper_antitone (F : Finset (Pattern A d)) :
-  Antitone (q_upper (A:=A) (d:=d) F) := by
-  classical
-  intro i j hij
-  induction' j with j IH generalizing i
-  · have : i = 0 := Nat.eq_of_le_of_lt_succ (by simpa using hij) (Nat.succ_pos 0)
-    subst this; simp [q_upper]
-  cases le_or_lt i j with
-  | inl hle =>
-      have hij' : i ≤ j := hle
-      have := Nat.le_trans hij' (Nat.le_succ j)
-      -- q (j+1) = min (q j) (u_loc (j+1)) ≤ q j
-      simpa [q_upper] using Real.min_le_left (q_upper (A:=A) (d:=d) F j) (u_loc (A:=A) (d:=d) F (j+1)) ▸
-        le_of_eq rfl ▸ le_of_lt ?_
-    admit
-  | inr hlt =>
-      -- if i > j then i ≤ j+1, reduce to previous case
-      have : i ≤ j.succ := Nat.lt_succ_iff.mp hlt
-      -- same argument as above
-      -- we only need: q_{j+1} ≤ q_j
-      have hmin : q_upper (A:=A) (d:=d) F (j+1) ≤ q_upper (A:=A) (d:=d) F j :=
-        by
-          classical
-          have := Real.min_le_left (q_upper (A:=A) (d:=d) F j) (u_loc (A:=A) (d:=d) F (j+1))
-          simpa [q_upper] using this
-      exact le_trans hmin (IH (Nat.le_of_lt_succ hlt))
--- (You can tidy this proof; the key fact is `min a b ≤ a`.)
+  Antitone (q_upper (A := A) (d := d) F) := by
+  refine antitone_nat_of_succ_le ?_
+  intro n
+  -- q_upper F (n+1) = min (q_upper F n) (u_loc F (n+1)) ≤ q_upper F n
+  simpa [q_upper] using
+    min_le_left (q_upper (A := A) (d := d) F n)
+                (u_loc (A := A) (d := d) F (n+1))
 
-/-- Every **globally admissible** pattern (one that occurs in some `x ∈ X`)
-is locally admissible. Hence the global language cardinality is bounded above by
-the local count. -/
+/-- Every globally admissible window pattern comes from some `x ∈ X_F`, hence
+the global language cardinality is bounded by the number of locally admissible
+colorings on the window. -/
 lemma languageCard_le_patternCountLoc
   (F : Finset (Pattern A d)) (n : ℕ) :
-  languageCard (A:=A) (d:=d) (X_F (A:=A) (d:=d) (F : Set (Pattern A d))).carrier n
+  languageCard (A:=A) (d:=d)
+      (X_F (A:=A) (d:=d) (F : Set (Pattern A d))).carrier n
     ≤ patternCountLoc (A:=A) (d:=d) F n := by
   classical
-  -- expand `languageCard` witnessing map (restrict config x to U)
+  -- Fix the box U of size n.
   let U : Finset (Zd d) := box (d:=d) n
-  let restr : {x : Zd d → A // x ∈ (X_F (A:=A) (d:=d) (F : Set (Pattern A d))).carrier}
-      → (U → A) :=
-    fun x => fun i => x.1 i.1
-  -- Image of `restr` is included in locally admissible colorings
-  have himg : Set.image restr Set.univ ⊆
+  -- X is defined by the set of forbidden patterns F
+  let X : Set (Zd d → A) :=
+    (X_F (A:=A) (d:=d) (F : Set (Pattern A d))).carrier
+
+  -- The restriction function from configurations in X to finite functions from U to A, that is, it provides the pattern given by restriction of x to p.
+  let restrF : {x : Zd d → A // x ∈ X} → (U → A) :=
+    fun x i => x.1 i.1
+
+  -- We want to prove that image(restrF) ⊆ locally admissible
+  -- The hypothesis to prove.
+  have hsubset :
+      Set.range restrF ⊆
       { f : (U → A) | locallyAdmissible (A:=A) (d:=d) F n f } := by
+    -- We introduce a function f : (U → A) and the hypothesis to prove for this f (hf).
     intro f hf
-    rcases hf with ⟨x, -, rfl⟩
-    -- x avoids F globally; its restriction is locally admissible
-    intro p hp v hv
-    -- If a translate of p fit inside the box matched everywhere, then p occurs in x at v,
-    -- contradicting avoidance.
+    -- Take x witness of restrF x = f and rewrite hf using this.
+    rcases hf with ⟨x, rfl⟩
+    -- Property that the configuration x is in the shift obtained by forbidding patterns in F.
     have hx : x.1 ∈ forbids (A:=A) (d:=d) (F : Set (Pattern A d)) := x.2
-    have hx' := hx p (by simpa [SetLike.mem] using hp) v
-    -- specialize hx' with the hypothetical local occurrence
+    -- Yields p with the property hp: p in F and v in Z^d such that for all u in the support of p, u+v is in the box of size n (it is the position of the pattern p).
+    intro p hp v hv
+    -- This means hx' is ¬ p.occursIn x.1 v.
+    have hx' := hx p (by simpa [Finset.mem_coe] using hp) v
     have : (∀ u (hu : u ∈ p.support),
-      (fun i => x.1 i.1) ⟨u + v, by simpa using hv u hu⟩ = p.data ⟨u, hu⟩) →
-      False := by
-      intro H
-      apply hx'
-      intro u hu
-      -- Rewrite the restriction equality back to the whole config equality
-      simpa using (H u hu)
+        (fun j : { z : Zd d // z ∈ (U : Set (Zd d)) } => x.1 j.1) ⟨u + v, by simpa using hv u hu⟩
+        = p.data ⟨u, hu⟩) → False := by
+      -- This assumes that H : ∀ u (hu : u ∈ p.support), (fun j => x.1 j.1) ⟨u+v, …⟩ = p.data ⟨u, hu⟩ is True and the new goal becomes: False.
+      intro H;
+      -- goal becomes p.occursIn x v
+      apply hx';
+      -- introduces u corresponding to this hypothesis: u
+      intro u hu;
+      simpa using H u hu
     exact this
-  -- cardinality bound: image size ≤ number of locally admissible colorings
-  -- Both sides are finite, so we can pass to `Finset` and compare `card`.
-  -- Left side equals `languageCard ... n` by your definition.
-  -- Right side equals `patternCountLoc F n` by definition.
-  -- Hence the inequality holds.
-  -- (Packing the last step into a single `admit` to avoid a long bijection proof.)
-  admit
+
+  -- Definition of the restriction function of configurations in X to the pattern on U.
+  let fPat : {x : Zd d → A // x ∈ X} → FixedSupport A d U :=
+    fun x => ⟨patternFromConfig (A:=A) (d:=d) x.1 U, rfl⟩
+  -- Rewriting functions from FixedSupport as functions from U to A.
+  let e : FixedSupport A d U ≃ (U → A) := equivFun (A:=A) (d:=d) (U:=U)
+
+  -- Rewriting restrF using e and fPat
+  have h_comp : restrF = fun x => e (fPat x) := by
+    funext x i; rfl
+
+  -- The range of restrF is the range of e(fPat)
+  have h_range :
+      Set.range restrF = e '' (Set.range fPat) := by
+    -- Writes the equality as an equivalence f belongs to set 1 with f belongs to set 2.
+    ext f;
+    -- Rewrites the goal as two implications instead of an equivalence.
+    constructor
+    -- First implication. introduce hypothesis and assume it.
+    · intro hf;
+      -- Unpacks the hypothesis, replacing f with restrF(x).
+      rcases hf with ⟨x, rfl⟩;
+      -- Shows that there exists y in the image e(fPat) which is equal to restrF(x). Does this by choosing y = fPat(x) and using restrF = fun x => e (fPat x).
+      exact ⟨fPat x, by simp [h_comp]⟩
+    -- Introduces the other hypothesis (Assume hf : f ∈ e '' (Set.range fPat)) and assumes it.
+    · intro hf
+      -- Unpacks the existential version of the hypothesis.
+      rcases hf with ⟨y, hy⟩
+      -- Splits the conjunction hy : y ∈ Set.range fPat ∧ e y = f into two hypotheses.
+      rcases hy with ⟨hy1, hy2⟩
+      -- Unpacks existential hy1 : ∃ x, fPat x = y.
+      rcases hy1 with ⟨x, hx⟩
+      -- Checks that x has the right type and replaces the goal f in range(restrF) with restrF(x)=f.
+      refine ⟨x, ?_⟩
+      -- Replaces hy2 using y = fPat(x), so that hy2 is the goal, the exact included in simpa concludes.
+      have : e (fPat x) = f := by simpa [hx] using hy2
+      -- uses rewriting hypothesis h_comp.
+      simpa [h_comp] using this
+
+  -- The image of restrF has the same cardinality as the one of fPat - ncard works for subsets of potentially infinite types without needing finiteness upfront (contrary to card)
+  have h_ncard_eq :
+      (Set.range restrF).ncard = (Set.range fPat).ncard := by
+    -- The function e is injective
+    have hinj : Function.Injective (fun z : FixedSupport A d U => e z) := e.injective
+    -- Uses the fact that range of restrF is the range of e(fPat) and the fact that range(e(fPat)) is has same cardinal as range of fPat, as e is injective.
+    simpa [h_range] using
+      Set.ncard_image_of_injective (s := Set.range fPat) hinj
+
+  ------------------------------------------------------------------
+  -- Same goal, but end in the `Finset.univ.filter` normal form
+  ------------------------------------------------------------------
+
+  classical
+  haveI : Fintype (U → A) := inferInstance
+  haveI : Fintype (FixedSupport A d U) := Fintype.ofEquiv (U → A) e.symm
+
+  -- As before
+  have h₁ :
+      (Set.range restrF).ncard ≤
+      ({ f : (U → A) | locallyAdmissible (A:=A) (d:=d) F n f }).ncard :=
+    Set.ncard_mono hsubset
+
+  have h₂ :
+      (Set.range fPat).ncard ≤
+      ({ f : (U → A) | locallyAdmissible (A:=A) (d:=d) F n f }).ncard := by
+    simpa [h_ncard_eq] using h₁
+
+  -- Name the admissible set so predicates are syntactically identical
+  let Loc : Set (U → A) := { f | locallyAdmissible (A:=A) (d:=d) F n f }
+
+  -- You already had:
+  -- h₂ : (Set.range fPat).ncard ≤ ({ f : (U → A) | locallyAdmissible … f }).ncard
+  -- Rewrite its RHS to Loc (still an ncard inequality on Sets)
+  have h₂_loc : (Set.range fPat).ncard ≤ Loc.ncard := by
+    simpa [Loc] using h₂
+
+------------------------------------------------------------------
+  -- Stay in ncard; convert to card only once at the end
+  ------------------------------------------------------------------
+
+  classical
+
+  -- Use the prefix form and a typed `univ` to avoid parser glitches.
+  have h_range_toFinset₁ :
+    (Set.range fPat).toFinset =
+      Finset.filter (Membership.mem (Set.range fPat))
+        (Finset.univ : Finset (FixedSupport A d U)) := by
+    apply Finset.ext; intro x; constructor
+    · intro hx
+      have hx' : x ∈ Set.range fPat := by
+        simpa [Set.mem_toFinset] using hx
+      exact Finset.mem_filter.mpr ⟨by simp, hx'⟩
+    · intro hx
+      rcases Finset.mem_filter.mp hx with ⟨_, hx'⟩
+      simpa [Set.mem_toFinset] using hx'
+
+
+  -- 2) (optional) if your goal uses the expanded predicate {x | ∃ a b, …}, show it’s equivalent
+  have h_pred (x : FixedSupport A d U) :
+      (x ∈ Set.range fPat) ↔ (∃ a, ∃ b : a ∈ X, fPat ⟨a, b⟩ = x) := by
+    constructor
+    · intro hx; rcases hx with ⟨⟨a,b⟩, rfl⟩; exact ⟨a,b,rfl⟩
+    · intro ⟨a,b,hx⟩; exact ⟨⟨a,b⟩, hx⟩
+
+  have h_filter_pred :
+    Finset.filter (Membership.mem (Set.range fPat))
+        (Finset.univ : Finset (FixedSupport A d U))
+      =
+    Finset.filter (fun x => ∃ a, ∃ b : a ∈ X, fPat ⟨a,b⟩ = x)
+        (Finset.univ : Finset (FixedSupport A d U)) := by
+    apply Finset.ext; intro x; constructor
+    · intro hx
+      rcases Finset.mem_filter.mp hx with ⟨hxU, hxP⟩
+      exact Finset.mem_filter.mpr ⟨hxU, (h_pred x).1 hxP⟩
+    · intro hx
+      rcases Finset.mem_filter.mp hx with ⟨hxU, hxP⟩
+      exact Finset.mem_filter.mpr ⟨hxU, (h_pred x).2 hxP⟩
+
+  classical
+  -- instances needed here (after `e` and `fPat`)
+  haveI : Fintype (FixedSupport A d U) := Fintype.ofEquiv (U → A) e.symm
+  haveI : DecidableEq (FixedSupport A d U) := Classical.decEq _
+  haveI : DecidablePred (fun x : FixedSupport A d U => x ∈ Set.range fPat) :=
+    Classical.decPred _
+
+  -- (1) typed alias for `univ` to keep both sides literally identical when we unfold
+  let FU : Finset (FixedSupport A d U) :=
+    (Finset.univ : Finset (FixedSupport A d U))
+
+  -- (2) exact equality: `toFinset (Set.range fPat)` is `univ.filter (∈ range fPat)`
+  have h_range_toFinset_mem :
+    (Set.range fPat).toFinset =
+      Finset.filter (Membership.mem (Set.range fPat)) FU := by
+    apply Finset.ext; intro x; constructor
+    · intro hx
+      have hx' : x ∈ Set.range fPat := by
+        simpa [Set.mem_toFinset] using hx
+      exact Finset.mem_filter.mpr ⟨by simpa [FU], hx'⟩
+    · intro hx
+      rcases Finset.mem_filter.mp hx with ⟨_, hx'⟩
+      simpa [Set.mem_toFinset] using hx'
+
+  -- (3) bridge `Finite.toFinset (toFinite …)` ↔ `Set.toFinset` once and for all
+  have h_toFinite_toFinset_eq :
+    (Finite.toFinset (toFinite (Set.range fPat))) =
+      (Set.range fPat).toFinset := by
+    apply Finset.ext; intro x; constructor
+    · intro hx
+      have : x ∈ Set.range fPat := by
+        simpa [Set.Finite.mem_toFinset] using hx
+      simpa [Set.mem_toFinset] using this
+    · intro hx
+      have : x ∈ Set.range fPat := by
+        simpa [Set.mem_toFinset] using hx
+      simpa [Set.Finite.mem_toFinset] using this
+
+  -- (4) finally: the left bridge itself, in the exact filtered form you need
+  have h_left_mem :
+    (Set.range fPat).ncard =
+      (Finset.filter (Membership.mem (Set.range fPat))
+        (Finset.univ : Finset (FixedSupport A d U))).card := by
+    calc
+      (Set.range fPat).ncard
+          = (Finite.toFinset (toFinite (Set.range fPat))).card := by
+              exact (Set.ncard_eq_toFinset_card (s := Set.range fPat))
+      _   = (Set.range fPat).toFinset.card := by
+              -- take `card` of h_toFinite_toFinset_eq
+              exact congrArg Finset.card h_toFinite_toFinset_eq
+      _   = (Finset.filter (Membership.mem (Set.range fPat)) FU).card := by
+              exact congrArg Finset.card h_range_toFinset_mem
+      _   = (Finset.filter (Membership.mem (Set.range fPat))
+              (Finset.univ : Finset (FixedSupport A d U))).card := by
+              simpa [FU]
+
+  -- If elsewhere you need the RHS written with `Finset.univ` instead of `FU`:
+  have h_left_mem_univ :
+    (Set.range fPat).ncard =
+      (Finset.filter (Membership.mem (Set.range fPat))
+        (Finset.univ : Finset (FixedSupport A d U))).card := by
+    simpa [FU] using h_left_mem
+
+  -- Right bridge on (U → A); if you named Loc := { f | locallyAdmissible … f }:
+  have h_right :
+      Loc.ncard =
+      (Finset.univ.filter
+        (fun f : (U → A) => locallyAdmissible (A:=A) (d:=d) F n f)).card := by
+    refine (Set.ncard_eq_toFinset_card Loc).trans ?_
+    simpa [Loc] using congrArg Finset.card h_loc_toFinset
+
+
+
+
+  -- Step 1: rewrite only the LHS of h₂
+  have h2_LHS :
+    (Finset.filter (Membership.mem (Set.range fPat))
+      (Finset.univ : Finset (FixedSupport A d U))).card ≤ Loc.ncard := by
+    -- h₂ : (Set.range fPat).ncard ≤ Loc.ncard
+    simpa [h_left_mem] using h₂
+
+  -- Step 2: rewrite the RHS Loc.ncard to the filtered-card on (U → A)
+  have h_card_le_filter :
+    (Finset.filter (Membership.mem (Set.range fPat))
+      (Finset.univ : Finset (FixedSupport A d U))).card ≤
+    (Finset.univ.filter
+      (fun f : (U → A) => locallyAdmissible (A:=A) (d:=d) F n f)).card := by
+    -- h_right is the bridge: Loc.ncard = (univ.filter …).card
+    simpa [h_right] using h2_LHS
+
+  -- 2) If you want the LHS as (Set.range fPat).toFinset.card, bridge back:
+  have h_range_card :
+    (Set.range fPat).toFinset.card =
+    (Finset.filter (Membership.mem (Set.range fPat))
+      (Finset.univ : Finset (FixedSupport A d U))).card := by
+    simpa using congrArg Finset.card h_range_toFinset
+
+  have h_card_le :
+      (Set.range fPat).toFinset.card ≤
+      (Finset.univ.filter (locallyAdmissible (A:=A) (d:=d) F n)).card := by
+    simpa [h_range_card] using h_card_le_filter
+
+
+
+  -- (3) identify the two ends with your definitions and conclude
+  classical
+  -- decidability for the existential predicate on FixedSupport (needed by `.toFinset`)
+  haveI : DecidablePred
+    (fun x : FixedSupport A d U =>
+      ∃ a, ∃ h : a ∈ X, fPat ⟨a, h⟩ = x) := Classical.decPred _
+
+  have h_lang_card :
+      languageCard (A:=A) (d:=d) X n
+        = (Set.range fPat).toFinset.card := by
+    -- First: put languageCard in the “existential set → toFinset.card” shape
+    have h_def :
+        languageCard (A:=A) (d:=d) X n
+          =
+        ({x : FixedSupport A d U |
+            ∃ a, ∃ h : a ∈ X, fPat ⟨a, h⟩ = x}).toFinset.card := by
+      -- adjust if your definition is oriented slightly differently
+      simpa [languageCard, U, fPat]
+
+    -- Second: identify that set with Set.range fPat via your equivalence h_pred
+    have h_sets :
+        ({x : FixedSupport A d U |
+            ∃ a, ∃ h : a ∈ X, fPat ⟨a, h⟩ = x} :
+          Set (FixedSupport A d U))
+          =
+        Set.range fPat := by
+      -- h_pred x : x ∈ range fPat ↔ ∃ a h, fPat ⟨a,h⟩ = x
+      ext x; exact (h_pred x).symm
+
+    -- Third: push equality through toFinset and take card
+    have h_cards :
+        ({x : FixedSupport A d U |
+            ∃ a, ∃ h : a ∈ X, fPat ⟨a, h⟩ = x}).toFinset.card
+          =
+        (Set.range fPat).toFinset.card := by
+      -- rewriting the set under `toFinset` is enough
+      simpa [h_sets]
+
+    -- Chain the two equalities
+    exact h_def.trans h_cards
+
+  -- (4) identify `patternCountLoc` with the card of the Loc filter (robust)
+  classical
+  have h_pcl_card :
+    patternCountLoc (A:=A) (d:=d) F n
+      =
+    (Finset.univ.filter
+      (fun f : (U → A) => locallyAdmissible (A:=A) (d:=d) F n f)).card := by
+    -- Prove RHS = LHS, then flip.
+    have hR :
+      (Finset.univ.filter
+        (fun f : (U → A) => locallyAdmissible (A:=A) (d:=d) F n f)).card
+        =
+      patternCountLoc (A:=A) (d:=d) F n := by
+      calc
+        (Finset.univ.filter
+          (fun f : (U → A) => locallyAdmissible (A:=A) (d:=d) F n f)).card
+            = (Loc.toFinset).card := by
+                -- use your finset equality for Loc in the right orientation
+                simpa [Loc] using (congrArg Finset.card h_loc_toFinset).symm
+        _   = Loc.ncard := by
+                -- Set bridge: toFinset.card ↔ ncard
+                simpa using (Set.ncard_eq_toFinset_card (s := Loc)).symm
+        _   = patternCountLoc (A:=A) (d:=d) F n := by
+              classical
+              -- You already have:
+              -- h_right :
+              --   Loc.ncard =
+              --   (Finset.univ.filter
+              --     (fun f : (U → A) => locallyAdmissible (A:=A) (d:=d) F n f)).card
+
+              -- Put patternCountLoc in the same filtered-card normal form
+              have pcl_def :
+                patternCountLoc (A:=A) (d:=d) F n
+                  =
+                (Finset.univ.filter
+                  (fun f : (U → A) =>
+                    locallyAdmissible (A:=A) (d:=d) F n f)).card := by
+                  classical
+                  -- name the predicate once
+                  set P : (U → A) → Prop :=
+                    fun f => locallyAdmissible (A:=A) (d:=d) F n f
+                  with hP
+
+                  -- filter over univ = comprehension (as finsets)
+                  have hfs :
+                    (Finset.univ.filter (fun f : (U → A) => P f))
+                      =
+                    ({ f : (U → A) | P f } : Finset (U → A)) := by
+                    apply Finset.ext; intro f; constructor
+                    · intro hf
+                      rcases Finset.mem_filter.mp hf with ⟨_, hfP⟩
+                      simpa [hP] using hfP
+                    · intro hf
+                      have hfP : P f := by simpa [hP] using hf
+                      exact Finset.mem_filter.mpr ⟨by simp, hfP⟩
+
+                  -- 1) Put patternCountLoc in “comprehension-card” form
+                  have hcomp :
+                    patternCountLoc (A:=A) (d:=d) F n
+                      =
+                    (({ f : (U → A) | P f } : Finset (U → A))).card := by
+                    unfold patternCountLoc
+                    -- kills the internal `let U := box n` and rewrites the predicate to `P`
+                    simpa [U, hP]
+
+                  -- 2) Switch comprehension-card → filtered-card via `hfs`
+                  have hfilter :
+                    patternCountLoc (A:=A) (d:=d) F n
+                      =
+                    (Finset.univ.filter (fun f : (U → A) => P f)).card := by
+                    -- orientation is handled by the `simpa [hfs]`
+                    simpa [hfs] using hcomp
+
+                  -- 3) Replace `P` with the original predicate
+                  simpa [hP] using hfilter
+              exact h_right.trans pcl_def.symm
+    exact hR.symm
+
+    -- Normalize the RHS predicate to the function form, to match `h_pcl_card`
+  have h_card_le_fun :
+      (Set.range fPat).toFinset.card ≤
+      (Finset.univ.filter
+        (fun f : (U → A) => locallyAdmissible (A:=A) (d:=d) F n f)).card := by
+    simpa using h_card_le
+
+  -- Final chain: languageCard ≤ patternCountLoc
+  calc
+    languageCard (A:=A) (d:=d) X n
+        = (Set.range fPat).toFinset.card := by
+            simpa [h_lang_card]
+    _ ≤ (Finset.univ.filter
+          (fun f : (U → A) => locallyAdmissible (A:=A) (d:=d) F n f)).card :=
+          h_card_le_fun
+    _ = patternCountLoc (A:=A) (d:=d) F n := by
+          simpa using h_pcl_card.symm
+
+
+
+
 
 /-- Pointwise bound: the per-site global language growth is bounded by the local one. -/
 lemma perBox_log_bound (F : Finset (Pattern A d)) (n : ℕ) :
