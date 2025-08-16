@@ -290,57 +290,104 @@ lemma cylinder_is_closed (d : ℕ) (U : Finset (Zd d)) (x : Zd d → A) :
         · simp [hiy]
         -- Enough to apply the update.
         · simp [Function.update_apply]
-      -- TODO: START AGAIN FROM THERE.
+      -- rintro: refined intro, instead of simply introducing the hypothesis of the implication,
+      -- directly unpacks the quantifiers.
       · rintro ⟨i, hiU, a, ha, hy⟩
+        -- simplifies ha by removing True
         simp only [true_and] at ha
+        -- uses i for x_1
         use i, hiU
+        -- rewrites the goal using hy: y i = Function.update x i a i
         rw [hy]
+        -- simplifies using the definition of Function.update: here Function.update x i a i = a.
+        -- Here goal becomes ¬(if True then a else x i) = x i.
         simp only [Function.update_apply]
+        -- gets a ≠ x i (we know that a is in in {x_i})
         have hne : a ≠ x i := by
+          -- intro here introduces by default the opposite (reasoning ad absurdum)
           intro h
+          -- we need to prove a ∈ {x i} (since contradiction with ha)
           apply ha
+          -- since a = x i (h), we just need to prove x i ∈ {x i}
           rw [h]
+          -- this is given directly by Finset.mem_singleton_self
           exact Finset.mem_singleton_self _
         exact hne
+        -- residual goal i ∈ {i} is because of "if True".
         exact Finset.mem_singleton_self i
-  -- Proof that the complement is open.
+  -- Proof that the complement is open using the fact proven above that the
+  -- complement is a union of cylinders.
   have : IsOpen ((cylinder U x)ᶜ) := by
+    -- uses the fact that the complement is union of cylinders.
     rw [h]
+    -- with apply we now need to prove that each set in the union is open.
+    -- Note that ⋃ i ∈ U means ⋃ (i : Zd d), ⋃ (hi : i ∈ U), which is why
+    -- there needs to apply 4 times here.
     apply isOpen_iUnion; intro i
     apply isOpen_iUnion; intro hi
     apply isOpen_iUnion; intro a
     apply isOpen_iUnion; intro ha
+    -- apply the lemma saying that cylinders are open.
     exact cylinder_is_open {i} (Function.update x i a)
-  -- Concludes
+  -- Concludes with the fact that the complement of an open set is
+  -- closed.
   exact isOpen_compl_iff.mp this
 end
 
 /-! ### Subshifts and patterns -/
 
 /-- A subshift is a closed, shift-invariant subset of the full shift. -/
+-- A Subshift on alphabet A and of dimension d is a record with three fields:
+-- carrier — the underlying set of points in the full shift FullShiftZd A d.
+-- is_closed — a proof that carrier is closed in the topology.
+-- shift_invariant — a proof that for every vector v : Zd d, shifting any
+-- x in carrier by v stays in carrier.
 structure Subshift (A : Type*) [TopologicalSpace A] [Inhabited A] (d : ℕ) where
   carrier : Set (FullShiftZd A d)
   is_closed : IsClosed carrier
   shift_invariant : ∀ v : Zd d, ∀ x ∈ carrier, shift v x ∈ carrier
 
 /-- The full shift is itself a subshift. -/
+-- example tells Lean: “check that the following term has this type”,
+-- but don’t give it a user-facing name.
 example : Subshift A d :=
 { carrier := Set.univ,
   is_closed := isClosed_univ,
   shift_invariant := fun _ _ _ ↦ mem_univ _ }
 
-/-- A finite pattern with support and associated values. -/
+/-- A finite pattern is defined as a support and a function support -> A -/
 structure Pattern (A : Type*) (d : ℕ) where
   support : Finset (Zd d)
   data : support → A
 
+/-- The "domino" pattern supported at `{i, j}`, taking value `ai` at `i` and `aj` at `j`. -/
+def domino {A : Type*} {d : ℕ}
+    (i j : Zd d) (ai aj : A) : Pattern A d :=
+by
+  classical
+  refine
+  { support := ({i, j} : Finset (Zd d))
+  , data    := ?_ }
+  intro u
+  -- Make the decision on the *value* `u : Zd d`, not on the proof `u.property`.
+  exact if (u : Zd d) = i then ai else aj
+
+-- TODO: START AGAIN FROM THERE.
+-- TODO: write example/lemma that dominos are patterns.
+
+
 /-- A pattern `p` occurs in a configuration `x` at position `v`. -/
+-- The keyword Prop corresponds to statements, without proof.
 def Pattern.occursIn (p : Pattern A d) (x : FullShiftZd A d) (v : Zd d) : Prop :=
   ∀ u (hu : u ∈ p.support), x (u + v) = p.data ⟨u, hu⟩
+
 
 /-- The set of configurations that avoid all patterns in a given forbidden set. -/
 def forbids (F : Set (Pattern A d)) : Set (FullShiftZd A d) :=
   { x | ∀ p ∈ F, ∀ v : Zd d, ¬ p.occursIn x v }
+
+section
+variable {A : Type*} {d : ℕ}
 
 /-- The set of configurations avoiding `F` is shift-invariant. -/
 lemma forbids_shift_invariant (F : Set (Pattern A d)) :
@@ -354,6 +401,8 @@ lemma forbids_shift_invariant (F : Set (Pattern A d)) :
   intro u hu
   simp [←add_assoc]
   exact H u hu
+
+end
 
 def patternToOriginConfig (p : Pattern A d) : FullShiftZd A d :=
   fun i ↦ if h : i ∈ p.support then p.data ⟨i, h⟩ else default
@@ -999,12 +1048,20 @@ lemma languageCard_le_patternCountLoc
 
                   -- 1) Put patternCountLoc in “comprehension-card” form
                   have hcomp :
-                    patternCountLoc (A:=A) (d:=d) F n
-                      =
-                    (({ f : (U → A) | P f } : Finset (U → A))).card := by
-                    unfold patternCountLoc
-                    -- kills the internal `let U := box n` and rewrites the predicate to `P`
-                    simpa [U, hP]
+                        patternCountLoc (A:=A) (d:=d) F n
+                          =
+                        (Finset.univ.filter (fun f : (U → A) => P f)).card := by
+                      classical
+                      unfold patternCountLoc
+                      -- Turn comprehension ↔ filter using `hfs`
+                      have hc :
+                          (({ f : (U → A) | P f } : Finset (U → A))).card
+                            =
+                          (Finset.univ.filter (fun f : (U → A) => P f)).card := by
+                        -- note the `.symm` orientation so the LHS is the comprehension
+                        simpa using congrArg Finset.card hfs.symm
+                      -- Now rewrite the unfolded goal to `hc` via `[U, hP]`
+                      simpa [U, hP] using hc
 
                   -- 2) Switch comprehension-card → filtered-card via `hfs`
                   have hfilter :
