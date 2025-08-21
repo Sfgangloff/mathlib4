@@ -99,7 +99,7 @@ variable (T : Finset (WangTile C))
 end
 
 /-- The nearest-neighbor Wang SFT on Z² with fixed east/north steps. -/
-def NNWangZ2 (hT : T.Nonempty) :
+def NNWang (hT : T.Nonempty) :
     (let _ : Inhabited (Alphabet T) := by
        classical
        exact ⟨⟨Classical.choose hT, Classical.choose_spec hT⟩⟩
