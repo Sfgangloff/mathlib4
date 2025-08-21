@@ -507,8 +507,6 @@ lemma blockMap_continuous (U : Finset G) :
   simpa [blockMap] using (continuous_apply (i.1 * g))
 end BlockMapContinuous
 
--- TDOO: READ FROM THERE
-
 lemma image_blockMap_closed
     {A G : Type*} [Fintype A] [TopologicalSpace A] [DiscreteTopology A] [Inhabited A] [Group G]
     (X : Subshift A G) (U : Finset G) :
@@ -545,9 +543,10 @@ def higherBlock
 , isClosed := image_blockMap_closed (A:=A) (G:=G) X U
 , shiftInvariant := by
     intro s y hy
-    rcases hy with ⟨x, hxX, rfl⟩
+    obtain ⟨x, hxX, rfl⟩ := hy
     refine ⟨shift (A:=A) (G:=G) s x, X.shiftInvariant s x hxX, ?_⟩
-    funext g i; simp [blockMap, shift, mul_assoc]
+    funext g i; simp [blockMap]
+    simp [mul_assoc]
 }
 
 @[simp] lemma mem_higherBlock_iff
@@ -578,7 +577,7 @@ lemma blockMap_commutes_on_image
     = (shift (A:=(U → A)) (G:=G) s (blockMap (A:=A) (G:=G) U x)) g := by
   -- equality of `U → A`-valued functions at each `g`
   funext i
-  simp [blockMap, shift, mul_assoc]
+  simp [blockMap,mul_assoc]
 
 
 end SymbolicDynamics
